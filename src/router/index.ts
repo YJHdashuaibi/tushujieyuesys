@@ -1,6 +1,7 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { useUserStore } from '../stores/user'
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   {
     // 登录页，无需登录
     path: '/login',
@@ -49,19 +50,19 @@ const router = createRouter({
   }
 })
 
-// 全局前置守卫：读取 localStorage 的 library_token 做鉴权
-router.beforeEach((to, from) => {
+// 全局前置守卫：读取 user store 的 isLoggedIn 做鉴权
+router.beforeEach((to) => {
   document.title = to.meta.title ? `${to.meta.title} - 图书借阅管理系统` : '图书借阅管理系统'
 
-  const token = localStorage.getItem('library_token')
+  const userStore = useUserStore()
 
-  // 目标页面需要登录但没有 token，跳回登录页
-  if (to.meta.requiresAuth && !token) {
+  // 目标页面需要登录但未登录，跳回登录页
+  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
     return { path: '/login' }
   }
 
   // 已登录还想访问登录页，直接去图书列表
-  if (to.path === '/login' && token) {
+  if (to.path === '/login' && userStore.isLoggedIn) {
     return { path: '/books' }
   }
 })

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 
-// 退出登录：清掉 token 再回登录页
+// 退出登录：清空 store 后再回登录页
 function handleLogout() {
-  localStorage.removeItem('library_token')
+  userStore.logout()
   router.push('/login')
 }
 </script>
@@ -15,6 +17,8 @@ function handleLogout() {
     <!-- 左侧菜单 -->
     <aside class="sidebar">
       <h1 class="logo">📚 图书借阅</h1>
+      <!-- 显示当前登录用户名 -->
+      <div class="user">{{ userStore.username }}</div>
       <nav>
         <!-- router-link 切换路由，router-link-active 自动高亮当前项 -->
         <RouterLink to="/books">📖 图书列表</RouterLink>
@@ -53,6 +57,18 @@ function handleLogout() {
 .logo {
   font-size: 16px;
   margin: 0;
+}
+
+/* 当前登录用户名 */
+.user {
+  font-size: 14px;
+  color: #42b883;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 导航项 */
@@ -122,6 +138,11 @@ nav a.router-link-active {
   .logo {
     font-size: 14px;
     white-space: nowrap;
+  }
+
+  .user {
+    padding: 4px 8px;
+    font-size: 12px;
   }
 
   nav {

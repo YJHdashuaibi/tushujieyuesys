@@ -1,11 +1,22 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 
-// 模拟登录：存 token 后跳转到图书列表
+// 用户名
+const username = ref('')
+
+// 登录：写入 store 状态并跳转到图书列表页
 function handleLogin() {
-  localStorage.setItem('library_token', 'demo-token')
+  const name = username.value.trim()
+  if (!name) {
+    alert('请输入用户名')
+    return
+  }
+  userStore.login(name)
   router.push('/books')
 }
 </script>
@@ -15,7 +26,14 @@ function handleLogin() {
     <div class="card">
       <h1>📚 图书系统登录</h1>
       <p class="sub">欢迎回来，请登录后继续</p>
-      <button @click="handleLogin">模拟登录</button>
+      <input
+        v-model="username"
+        class="input"
+        type="text"
+        placeholder="请输入用户名"
+        @keyup.enter="handleLogin"
+      />
+      <button @click="handleLogin">登录</button>
     </div>
   </div>
 </template>
@@ -51,6 +69,22 @@ h1 {
   color: #888;
   margin: 0 0 24px;
   font-size: 14px;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px solid #d7dce0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  border-color: #42b883;
 }
 
 button {
