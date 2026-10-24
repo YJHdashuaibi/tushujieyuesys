@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { usePageStore } from '../stores/page'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -65,6 +66,12 @@ router.beforeEach((to) => {
   if (to.path === '/login' && userStore.isLoggedIn) {
     return { path: '/books' }
   }
+})
+
+// 全局后置守卫：切换完成后，用 Pinia 监测并记录当前页面状态
+router.afterEach((to) => {
+  const pageStore = usePageStore()
+  pageStore.setPage(to)
 })
 
 export default router

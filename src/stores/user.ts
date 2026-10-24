@@ -22,10 +22,10 @@ export const useUserStore = defineStore('user', {
 
   // actions：可包含异步逻辑，用于修改状态
   actions: {
-    // 模拟登录，保存 token 和用户信息
-    login(username: string) {
-      this.token = 'mock-token-' + Date.now()
-      this.userInfo = { name: username, role: '读者' }
+    // 登录成功，写入接口返回的 token 和用户信息
+    login(data: { token: string; userInfo: UserInfo }) {
+      this.token = data.token
+      this.userInfo = data.userInfo
     },
 
     // 退出登录，清空状态
