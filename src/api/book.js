@@ -1,12 +1,12 @@
 import request from '../utils/request'
 
 /**
- * 分页获取图书列表
- * @param {number} [page] 页码
+ * 分页 / 关键字搜索获取图书列表
+ * @param {{ page?: number, pageSize?: number, keyword?: string }} [params]
  * @returns {Promise<{ list: Array, total: number, page: number, pageSize: number }>}
  */
-export function getBooks(page = 1) {
-  return request.get('/books', { params: { page } })
+export function getBooks({ page = 1, pageSize = 10, keyword = '' } = {}) {
+  return request.get('/books', { params: { page, pageSize, keyword } })
 }
 
 // 新增图书

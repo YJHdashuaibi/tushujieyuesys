@@ -1,4 +1,6 @@
 import { createApp } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
 import { createPinia } from 'pinia'
 import { createPersistedState } from 'pinia-plugin-persistedstate'
 import { setupWorker } from 'msw/browser'
@@ -13,7 +15,8 @@ async function prepare() {
   const worker = setupWorker(...handlers)
   try {
     // 未 mock 的请求正常放行（bypass），避免对每个未模拟请求逐一打印警告
-    await worker.start({ onUnhandledFrame: 'bypass' })
+    await worker.start({ onUnhandledRequest: 'bypass', quiet: true })
+    console.log('[MSW] mock worker 已启动')
   } catch (e) {
     // mock 启动失败不阻塞应用，仅提示
     console.warn('[MSW] mock worker 启动失败，已切换到真实请求', e)
@@ -28,6 +31,7 @@ prepare().then(() => {
   pinia.use(createPersistedState())
   app.use(pinia)
 
+  app.use(ElementPlus)
   app.use(router)
   app.mount('#app')
 }).catch((e) => {

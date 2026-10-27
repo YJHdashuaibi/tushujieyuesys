@@ -19,6 +19,21 @@ const records = [
 
 const borrowing = records.filter((r) => r.status === '借阅中').length
 const returned = records.filter((r) => r.status === '已归还').length
+
+// 根据状态返回对应的 el-tag 类型（success=归还，warning=借阅中）
+function tagType(status: string): 'success' | 'warning' {
+  return status === '已归还' ? 'success' : 'warning'
+}
+
+// 查询某日期（YYYY-MM-DD）当天应还的图书，供日历标记与 tooltip 展示
+function booksDueOn(dateStr: string) {
+  return records.filter((r) => r.dueDate === dateStr)
+}
+
+// 工具提示内容：列出当天到期图书，用"、 "连接
+function dueText(dateStr: string) {
+  return booksDueOn(dateStr).map((r) => r.title).join('、')
+}
 </script>
 
 <template>
@@ -32,164 +47,86 @@ const returned = records.filter((r) => r.status === '已归还').length
       </div>
     </div>
 
-    <div class="list">
-      <div v-for="record in records" :key="record.id" class="record-card">
-        <div class="record-cover">{{ record.title.charAt(0) }}</div>
+    <!-- 借阅日历：在 el-calendar 上通过 el-tooltip 展示每天应还图书 -->
+    <el-calendar class="borrow-calendar">
+      <template #date-cell="{ data }">
+        <!-- 日期数字 -->
+        <span class="cal-day">{{ data.day.slice(8) }}</span>
+        <!-- 当天有应还图书时，用 tooltip 悬停展示 -->
+        <el-tooltip
+          v-if="booksDueOn(data.day).length"
+          :content="`应还：${dueText(data.day)}`"
+          placement="top"
+          effect="dark"
+        >
+          <span class="cal-dot">{{ booksDueOn(data.day).length }}到期</span>
+        </el-tooltip>
+      </template>
+    </el-calendar>
 
-        <div class="record-body">
-          <div class="row">
-            <span class="title">{{ record.title }}</span>
-            <span
-              class="status"
-              :class="record.status === '已归还' ? 'back' : 'borrowing'"
-            >
-              {{ record.status }}
-            </span>
-          </div>
-
-          <div class="dates">
-            <span>借阅于 {{ record.date }}</span>
-            <span>应还 {{ record.dueDate }}</span>
-          </div>
-
-          <!-- 进度条：借阅进度演示 -->
-          <div class="progress">
-            <div
-              class="progress-bar"
-              :class="record.status === '已归还' ? 'done' : 'active'"
-            ></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="records.length === 0" class="empty">
-      暂无借阅记录
-    </div>
+    <!-- 借阅记录表格：el-table + 状态标签 el-tag -->
+    <el-table :data="records" border stripe style="width: 100%">
+      <el-table-column prop="title" label="书名" min-width="180" />
+      <el-table-column prop="date" label="借阅日期" width="120" />
+      <el-table-column prop="dueDate" label="应还日期" width="120" />
+      <!-- 状态列：根据状态渲染不同颜色的 el-tag -->
+      <el-table-column label="状态" width="110" align="center">
+        <template #default="{ row }">
+          <el-tag :type="tagType(row.status)" size="small">
+            {{ row.status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <!-- 无记录占位 -->
+      <template #empty>
+        <el-empty description="暂无借阅记录" />
+      </template>
+    </el-table>
   </div>
 </template>
 
 <style scoped>
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* 记录卡片 */
-.record-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  background: var(--color-surface);
+/* 借阅日历 */
+.borrow-calendar {
+  margin-bottom: 20px;
   border-radius: var(--radius-md);
-  padding: 18px;
+  overflow: hidden;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--color-border);
-  transition: transform 0.2s, box-shadow 0.2s;
+  background: var(--color-surface);
 }
 
-.record-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.record-cover {
-  flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #e67e22, #e74c3c);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
+/* 单元格内容：日期数字 + 到期标记 */
+.borrow-calendar :deep(.el-calendar-table .el-calendar-day) {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-}
-
-.record-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dates {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-top: 8px;
-  color: var(--color-text-muted);
+  gap: 2px;
+  padding: 4px;
   font-size: 13px;
 }
 
-/* 状态标签 */
-.status {
-  font-size: 12px;
+.cal-day {
   font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 20px;
-  flex-shrink: 0;
+  color: var(--color-text);
 }
 
-.back {
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
+/* 到期标记小圆点 */
+.cal-dot {
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 10px;
+  color: #fff;
+  background: linear-gradient(135deg, #e67e22, #e74c3c);
+  cursor: pointer;
 }
 
-.borrowing {
-  color: var(--color-warning);
-  background: var(--color-warning-soft);
-}
-
-/* 进度条（演示借阅周期） */
-.progress {
-  margin-top: 12px;
-  height: 6px;
-  border-radius: 4px;
-  background: var(--color-border);
-  overflow: hidden;
-}
-
-.progress-bar {
-  height: 100%;
-  width: 65%;
-  border-radius: 4px;
-}
-
-.progress-bar.active {
-  background: linear-gradient(90deg, var(--color-primary), #42b883);
-}
-
-.progress-bar.done {
-  background: var(--color-accent);
-  width: 100%;
-}
-
-/* 手机端：卡片内间距收紧 */
-@media (max-width: 480px) {
-  .record-card {
-    padding: 14px 12px;
-    gap: 10px;
-  }
-
-  .dates {
-    gap: 4px 12px;
+/* 表格容器在手机上留出边距 */
+@media (max-width: 640px) {
+  .page {
+    padding: 12px;
   }
 }
 </style>

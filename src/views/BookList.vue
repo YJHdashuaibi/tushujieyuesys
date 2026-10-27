@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { getBooks, addBook, updateBook, deleteBook, triggerServerError } from '../api/book'
+import { getBooks, addBook, updateBook, deleteBook } from '../api/book'
+import MyPagination from '../components/MyPagination.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -19,106 +21,138 @@ const books = ref<Array<{
 const loading = ref(true)
 const totalBooks = ref(0)
 
+// 分页 / 搜索状态
+const page = ref(1)
+const pageSize = ref(1)
+const keyword = ref('')
+
 // 汇总统计
 const borrowedCount = computed(() => books.value.filter((b) => b.borrowed).length)
 const availableCount = computed(() => totalBooks.value - borrowedCount.value)
 
-// 弹窗状态与表单数据
+// 弹窗与表单状态
 const modalVisible = ref(false)
 const modalTitle = ref('新增图书')
 const submitting = ref(false)
 const editingId = ref<number | null>(null)
-const form = reactive({
-  title: '',
-  author: '',
-  year: '',
-  category: ''
-})
+// 表单数据与校验规则（书名、作者必填）
+const formRef = ref()
+// 表单数据：书名、作者必填；评分、上架状态、库存
+const form = reactive<{
+  title: string
+  author: string
+  rating: number
+  onSale: boolean
+  stock: number
+}>({ title: '', author: '', rating: 0, onSale: true, stock: 0 })
+const rules = {
+  title: [{ required: true, message: '请输入书名', trigger: 'blur' }],
+  author: [{ required: true, message: '请输入作者', trigger: 'blur' }]
+}
 
-// 刷新列表（重新拉取第一页）
+// 刷新列表：按当前分页 / 关键字重新请求
 async function refreshList() {
+  // 请求开始即显示加载遮罩
+  loading.value = true
+  const start = Date.now()
   try {
-    const data = await getBooks(1)
+    const data = await getBooks({ page: page.value, pageSize: pageSize.value, keyword: keyword.value })
     books.value = data.list.map((b: any) => ({
       category: '未分类',
       borrowed: false,
+      rating: b.rating ?? 0,
+      onSale: b.onSale ?? true,
+      stock: b.stock ?? 0,
       ...b
     }))
     totalBooks.value = data.total
   } catch (e) {
-    alert('加载图书失败')
+    // 打印具体错误，便于在 DevTools 定位 mock 是否生效
+    console.error('[BookList] 加载图书失败', e)
+    alert(`加载图书失败：${(e as Error).message || e}`)
+  } finally {
+    // 保证遮罩至少展示 MIN_LOADING 毫秒，避免快速请求时闪烁
+    const MIN_LOADING = 500
+    const remain = MIN_LOADING - (Date.now() - start)
+    setTimeout(() => {
+      loading.value = false
+    }, remain > 0 ? remain : 0)
   }
+}
+
+// 搜索：重置页码并重新请求
+function handleSearch() {
+  page.value = 1
+  refreshList()
+}
+
+// 切换分页：页码 / 每页条数变化时重新请求
+function handlePageChange() {
+  refreshList()
 }
 
 // 挂载时拉取第一页图书
-onMounted(async () => {
-  try {
-    await refreshList()
-  } finally {
-    loading.value = false
-  }
-})
+onMounted(refreshList)
 
-// 打开新增弹窗（重置表单）
+// 打开新增弹窗（重置为空表单）
 function openAdd() {
   editingId.value = null
   modalTitle.value = '新增图书'
-  Object.assign(form, { title: '', author: '', year: '', category: '' })
+  formRef.value?.clearValidate()
+  Object.assign(form, { title: '', author: '', rating: 0, onSale: true, stock: 0 })
   modalVisible.value = true
 }
 
-// 打开编辑弹窗（回填当前书籍数据）
+// 打开编辑弹窗（回填当前行数据）
 function openEdit(book: any) {
   editingId.value = book.id
   modalTitle.value = '编辑图书'
+  formRef.value?.clearValidate()
   Object.assign(form, {
     title: book.title,
     author: book.author,
-    year: book.year,
-    category: book.category || ''
+    rating: book.rating ?? 0,
+    onSale: book.onSale ?? true,
+    stock: book.stock ?? 0
   })
   modalVisible.value = true
 }
 
-// 提交表单：新增或编辑
-async function handleSubmit() {
-  if (!form.title.trim() || !form.author.trim()) {
-    alert('请填写书名和作者')
+// 提交：先校验，通过后再新增或编辑
+function handleSubmit() {
+  formRef.value.validate(async (valid: boolean) => {
+    if (!valid) return
+    submitting.value = true
+    try {
+      if (editingId.value) {
+        await updateBook(editingId.value, { ...form })
+      } else {
+        await addBook({ ...form })
+      }
+      modalVisible.value = false
+      await refreshList() // 操作后刷新列表
+    } catch (e) {
+      alert('保存失败')
+    } finally {
+      submitting.value = false
+    }
+  })
+}
+
+// 删除图书：二次确认后调接口并刷新
+async function handleDelete(book: any) {
+  // 用户取消时 confirm 会 reject，直接 return
+  try {
+    await ElMessageBox.confirm(`确定删除《${book.title}》吗？`, '删除确认', { type: 'warning' })
+  } catch {
     return
   }
-  submitting.value = true
-  try {
-    if (editingId.value) {
-      await updateBook(editingId.value, { ...form })
-    } else {
-      await addBook({ ...form })
-    }
-    modalVisible.value = false
-    await refreshList() // 操作后刷新列表
-  } catch (e) {
-    alert('保存失败')
-  } finally {
-    submitting.value = false
-  }
-}
-
-// 删除图书
-async function handleDelete(book: any) {
-  if (!confirm(`确定删除《${book.title}》吗？`)) return
   try {
     await deleteBook(book.id)
+    ElMessage.success('删除成功')
     await refreshList()
-  } catch (e) {
-    alert('删除失败')
-  }
-}
-
-// 测试 500 响应：触发响应拦截器的服务器错误提示
-async function handleTest500() {
-  try {
-    await triggerServerError()
   } catch {
-    // 拦截器已弹"服务器错误"提示，这里无需重复处理
+    ElMessage.error('删除失败')
   }
 }
 
@@ -138,7 +172,6 @@ function handleLogout() {
       </div>
       <div class="header-actions">
         <button class="btn btn-primary" @click="openAdd">＋ 新增图书</button>
-        <button class="btn" @click="handleTest500">测试 500</button>
         <button class="btn btn-danger" @click="handleLogout">退出登录</button>
       </div>
     </div>
@@ -162,67 +195,90 @@ function handleLogout() {
       </div>
     </div>
 
-    <!-- 加载中 -->
-    <div v-if="loading" class="empty">⏳ 加载中...</div>
-
-    <!-- 空数据提示（接口返回空列表时展示） -->
-    <div v-else-if="books.length === 0" class="empty">📭 暂无图书数据</div>
-
-    <!-- 图书卡片网格 -->
-    <div v-else class="grid">
-      <div v-for="book in books" :key="book.id" class="book-card">
-        <div class="book-cover">{{ book.title.charAt(0) }}</div>
-        <div class="book-info">
-          <span class="category">{{ book.category }}</span>
-          <h3>{{ book.title }}</h3>
-          <p class="author">作者：{{ book.author }}</p>
-          <div class="book-footer">
-            <span class="year">{{ book.year }}</span>
-            <span class="status" :class="book.borrowed ? 'borrowed' : 'available'">
-              {{ book.borrowed ? '已借出' : '可借阅' }}
-            </span>
-          </div>
-          <div class="book-actions">
-            <button class="btn btn-sm" @click="openEdit(book)">编辑</button>
-            <button class="btn btn-sm btn-danger" @click="handleDelete(book)">删除</button>
-          </div>
-        </div>
-      </div>
+    <!-- 搜索框 -->
+    <div class="search-bar">
+      <el-input
+        v-model="keyword"
+        placeholder="搜索书名或作者"
+        clearable
+        style="max-width: 300px"
+        @keyup.enter="handleSearch"
+        @clear="handleSearch"
+      />
+      <el-button type="primary" @click="handleSearch">搜索</el-button>
     </div>
 
-    <!-- 新增 / 编辑弹窗 -->
-    <div v-if="modalVisible" class="modal-mask" @click.self="modalVisible = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>{{ modalTitle }}</h3>
-          <button class="modal-close" @click="modalVisible = false">✕</button>
-        </div>
-        <div class="modal-body">
-          <label class="field">
-            <span>书名</span>
-            <input v-model="form.title" class="input" type="text" placeholder="请输入书名" />
-          </label>
-          <label class="field">
-            <span>作者</span>
-            <input v-model="form.author" class="input" type="text" placeholder="请输入作者" />
-          </label>
-          <label class="field">
-            <span>年份</span>
-            <input v-model="form.year" class="input" type="text" placeholder="如 2024" />
-          </label>
-          <label class="field">
-            <span>分类</span>
-            <input v-model="form.category" class="input" type="text" placeholder="如 前端 / Java" />
-          </label>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" @click="modalVisible = false">取消</button>
-          <button class="btn btn-primary" :disabled="submitting" @click="handleSubmit">
-            {{ submitting ? '保存中...' : '保存' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- 图书表格：v-loading 绑定加载中状态，空数据显示 el-empty -->
+    <el-table v-loading="loading" :data="books" border stripe style="width: 100%">
+      <el-table-column prop="title" label="书名" min-width="180" />
+      <el-table-column prop="author" label="作者" min-width="120" />
+      <!-- 评分列：el-rate 只读展示 -->
+      <el-table-column label="评分" width="160" align="center">
+        <template #default="{ row }">
+          <el-rate :model-value="row.rating ?? 0" disabled size="small" />
+        </template>
+      </el-table-column>
+      <!-- 库存列 -->
+      <el-table-column prop="stock" label="库存" width="80" align="center" />
+      <!-- 上架状态列：el-switch 只读展示 -->
+      <el-table-column label="状态" width="90" align="center">
+        <template #default="{ row }">
+          <el-tag :type="row.onSale ? 'success' : 'info'" size="small">
+            {{ row.onSale ? '上架' : '下架' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <!-- 操作列：编辑 / 删除 -->
+      <el-table-column label="操作" width="140">
+        <template #default="{ row }">
+          <el-button type="primary" link @click="openEdit(row)">编辑</el-button>
+          <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
+        </template>
+      </el-table-column>
+      <!-- 无数据时的占位 -->
+      <template #empty>
+        <el-empty description="暂无数据" />
+      </template>
+    </el-table>
+
+    <!-- 分页组件：双向绑定页码/每页条数，变化时触发重新请求 -->
+    <MyPagination
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :total="totalBooks"
+      class="pager"
+      @change="handlePageChange"
+    />
+
+    <!-- 新增 / 编辑弹窗：el-dialog + el-form -->
+    <el-dialog v-model="modalVisible" :title="modalTitle" width="460px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
+        <el-form-item label="书名" prop="title">
+          <el-input v-model="form.title" placeholder="请输入书名" />
+        </el-form-item>
+        <el-form-item label="作者" prop="author">
+          <el-input v-model="form.author" placeholder="请输入作者" />
+        </el-form-item>
+        <!-- 评分：el-rate 星型评分 -->
+        <el-form-item label="评分">
+          <el-rate v-model="form.rating" :max="5" show-score />
+        </el-form-item>
+        <!-- 上架状态：el-switch 开关 -->
+        <el-form-item label="上架">
+          <el-switch v-model="form.onSale" active-text="上架" inactive-text="下架" />
+        </el-form-item>
+        <!-- 库存数量：el-input-number 数字输入 -->
+        <el-form-item label="库存">
+          <el-input-number v-model="form.stock" :min="0" :max="9999" :step="1" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="modalVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit">
+          {{ submitting ? '保存中...' : '保存' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -261,221 +317,23 @@ function handleLogout() {
   color: var(--color-text-muted);
 }
 
-/* 卡片网格 */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 16px;
-}
-
-.book-card {
+/* 搜索栏 */
+.search-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  padding: 18px;
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border);
-  transition: transform 0.2s, box-shadow 0.2s;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
-.book-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-md);
-}
-
-/* 封面占位 */
-.book-cover {
-  flex-shrink: 0;
-  width: 52px;
-  height: 52px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #3d7bfd, #42b883);
-  color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.book-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.category {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  margin-bottom: 6px;
-}
-
-.book-info h3 {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.4;
-  color: var(--color-text);
-}
-
-.author {
-  margin: 6px 0 10px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-
-.book-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.year {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-
-/* 借阅状态 */
-.status {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 20px;
-}
-
-.available {
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-
-.borrowed {
-  color: var(--color-warning);
-  background: var(--color-warning-soft);
-}
-
-/* 加载 / 空数据提示 */
-.empty {
-  text-align: center;
-  padding: 60px 0;
-  color: var(--color-text-muted);
-  font-size: 15px;
+/* 分页 */
+.pager {
+  margin-top: 16px;
+  justify-content: flex-end;
 }
 
 /* 页头操作区 */
 .header-actions {
   display: flex;
   gap: 10px;
-}
-
-/* 主色按钮兜底（.btn 默认已是主色） */
-.btn-primary {
-  background: var(--color-primary);
-}
-
-/* 小号按钮（卡片内操作） */
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 13px;
-}
-
-/* 卡片操作按钮排 */
-.book-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--color-border);
-}
-
-/* ===== 弹窗 ===== */
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.modal {
-  width: 100%;
-  max-width: 420px;
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 17px;
-  color: var(--color-text);
-}
-
-.modal-close {
-  border: none;
-  background: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  padding: 4px 8px;
-}
-
-.modal-close:hover {
-  color: var(--color-text);
-}
-
-.modal-body {
-  padding: 20px;
-}
-
-.field {
-  display: block;
-  margin-bottom: 16px;
-}
-
-.field span {
-  display: block;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  margin-bottom: 6px;
-}
-
-.field .input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.field .input:focus {
-  border-color: var(--color-primary);
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--color-border);
 }
 
 /* 手机端：统计卡片与网格 */
@@ -502,10 +360,6 @@ function handleLogout() {
 
   .stat-num {
     font-size: 22px;
-  }
-
-  .grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
