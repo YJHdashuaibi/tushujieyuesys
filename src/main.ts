@@ -15,7 +15,7 @@ async function prepare() {
   const worker = setupWorker(...handlers)
   try {
     // 未 mock 的请求正常放行（bypass），避免对每个未模拟请求逐一打印警告
-    await worker.start({ onUnhandledRequest: 'bypass', quiet: true })
+    await worker.start({ onUnhandledFrame: 'bypass', quiet: true })
     console.log('[MSW] mock worker 已启动')
   } catch (e) {
     // mock 启动失败不阻塞应用，仅提示
